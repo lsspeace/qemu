@@ -4,6 +4,8 @@
 #include "hw/core/boards.h"
 #include "hw/riscv/riscv_hart.h"
 
+#include "system/memory.h"
+
 
 typedef struct VltHostState {
     /*< private >*/
@@ -11,6 +13,7 @@ typedef struct VltHostState {
 
     /*< public >*/
     RISCVHartArrayState cpus;
+    MemoryRegion        mrom;
 } VltHostState;
 
 #define TYPE_VLT_HOST_MACHINE   MACHINE_TYPE_NAME("vlt_host")
