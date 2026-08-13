@@ -22,6 +22,7 @@
 #include "hw/riscv/boot.h"
 #include "hw/riscv/fdt-common.h"
 #include "hw/misc/sifive_test.h"
+#include "hw/intc/riscv_aclint.h"
 
 /* riscv */
 #include "target/riscv/cpu.h"
@@ -30,9 +31,10 @@
 #include "system/address-spaces.h"
 
 static const MemMapEntry vlt_host_map[] = {
-    [VLT_HOST_DEV_TEST] = {        0x0, 0x1000 },
-    [VLT_HOST_DEV_MROM] = {     0x1000, 0xf000 },
-    [VLT_HOST_DEV_DRAM] = { 0x80000000, 0x0    },
+    [VLT_HOST_DEV_TEST]     = {        0x0, 0x1000  },
+    [VLT_HOST_DEV_MROM]     = {     0x1000, 0xf000  },
+    [VLT_HOST_DEV_CLINT]    = {  0x2000000, 0x10000 },
+    [VLT_HOST_DEV_DRAM]     = { 0x80000000, 0x0     },
 };
 
 static void create_fdt(VltHostState* s)
@@ -40,6 +42,8 @@ static void create_fdt(VltHostState* s)
     MachineState *ms = MACHINE(s);
     int fdt_size;
     ms->fdt = create_board_device_tree("vlt_host", "vl_host_dev", &fdt_size);
+
+    /* do nothing */
 }
 
 static void vlt_host_board_init(MachineState *machine)
@@ -60,19 +64,30 @@ static void vlt_host_board_init(MachineState *machine)
     /* Create SiFive Test MMIO device */
     sifive_test_create(memmap[VLT_HOST_DEV_TEST].base);
 
-    /* Initialize and register boot rom */
+    /* Register Boot ROM (filled later by riscv_setup_rom_reset_vec) */
     memory_region_init_rom(&s->mrom, NULL, "riscv.vlt_host.mrom",
                            memmap[VLT_HOST_DEV_MROM].size, &error_fatal);
-    memory_region_add_subregion(sys_mem, memmap[VLT_HOST_DEV_MROM].base,
+    memory_region_add_subregion(sys_mem, memmap[VLT_HOST_DEV_MROM].base, 
                                 &s->mrom);
-    
+
+    /* Configure CLINT
+     * SWI @0x2000000, MTIMER @0x2004000 (10MHz, IRQ7 timer / IRQ3 soft) 
+     */
+    riscv_aclint_swi_create(memmap[VLT_HOST_DEV_CLINT].base, 
+                            0,  machine->smp.cpus, false);
+    riscv_aclint_mtimer_create(memmap[VLT_HOST_DEV_CLINT].base 
+                                + RISCV_ACLINT_SWI_SIZE,
+                               RISCV_ACLINT_DEFAULT_MTIMER_SIZE,
+                               0, machine->smp.cpus, 
+                               RISCV_ACLINT_DEFAULT_MTIMECMP,
+                               RISCV_ACLINT_DEFAULT_MTIME,
+                               RISCV_ACLINT_DEFAULT_TIMEBASE_FREQ, true);
 
     /* Register system main memory */
     memory_region_add_subregion(sys_mem, memmap[VLT_HOST_DEV_DRAM].base, 
                                 machine->ram);
 
     /* Ready to boot */
-
     riscv_boot_info_init(&boot_info, &s->cpus);
     
     if (machine->kernel_filename)
@@ -87,7 +102,7 @@ static void vlt_host_board_init(MachineState *machine)
                                            machine, &boot_info);
     riscv_load_fdt(fdt_load_addr, machine->fdt);
 
-
+    /* Jumping to the kernel with a0=hartid, a1=FDT */
     riscv_setup_rom_reset_vec(machine, &s->cpus, memmap[VLT_HOST_DEV_DRAM].base,
                               memmap[VLT_HOST_DEV_MROM].base,
                               memmap[VLT_HOST_DEV_MROM].size,

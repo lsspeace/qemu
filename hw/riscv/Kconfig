@@ -167,3 +167,5 @@ config VLT_HOST
     bool
     default y
     depends on RISCV64
+    select RISCV_ACLINT
+    select RISCV_APLIC
