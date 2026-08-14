@@ -23,6 +23,7 @@
 #include "hw/riscv/fdt-common.h"
 #include "hw/misc/sifive_test.h"
 #include "hw/intc/riscv_aclint.h"
+#include "hw/intc/riscv_aplic.h"
 
 /* riscv */
 #include "target/riscv/cpu.h"
@@ -31,10 +32,11 @@
 #include "system/address-spaces.h"
 
 static const MemMapEntry vlt_host_map[] = {
-    [VLT_HOST_DEV_TEST]     = {        0x0, 0x1000  },
-    [VLT_HOST_DEV_MROM]     = {     0x1000, 0xf000  },
-    [VLT_HOST_DEV_CLINT]    = {  0x2000000, 0x10000 },
-    [VLT_HOST_DEV_DRAM]     = { 0x80000000, 0x0     },
+    [VLT_HOST_DEV_TEST]     = {        0x0,        0x1000 },
+    [VLT_HOST_DEV_MROM]     = {     0x1000,        0xf000 },
+    [VLT_HOST_DEV_CLINT]    = {  0x2000000,       0x10000 },
+    [VLT_HOST_DEV_APLIC]    = {  0xc000000,     0x4000000 },
+    [VLT_HOST_DEV_DRAM]     = { 0x80000000,           0x0 },
 };
 
 static void create_fdt(VltHostState* s)
@@ -70,7 +72,7 @@ static void vlt_host_board_init(MachineState *machine)
     memory_region_add_subregion(sys_mem, memmap[VLT_HOST_DEV_MROM].base, 
                                 &s->mrom);
 
-    /* Configure CLINT
+    /* Create CLINT
      * SWI @0x2000000, MTIMER @0x2004000 (10MHz, IRQ7 timer / IRQ3 soft) 
      */
     riscv_aclint_swi_create(memmap[VLT_HOST_DEV_CLINT].base, 
@@ -82,6 +84,14 @@ static void vlt_host_board_init(MachineState *machine)
                                RISCV_ACLINT_DEFAULT_MTIMECMP,
                                RISCV_ACLINT_DEFAULT_MTIME,
                                RISCV_ACLINT_DEFAULT_TIMEBASE_FREQ, true);
+
+    /* Create APLIC
+     * Direct (non-MSI), 3 bit priority.
+     */
+    riscv_aplic_create(memmap[VLT_HOST_DEV_APLIC].base,
+                       memmap[VLT_HOST_DEV_APLIC].size,
+                       0, machine->smp.cpus, VLT_APLIC_NUM_SOURCES, 3, 
+                       false, true, NULL);
 
     /* Register system main memory */
     memory_region_add_subregion(sys_mem, memmap[VLT_HOST_DEV_DRAM].base, 
