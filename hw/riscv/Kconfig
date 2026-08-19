@@ -169,3 +169,4 @@ config VLT_HOST
     depends on RISCV64
     select RISCV_ACLINT
     select RISCV_APLIC
+    select VLT_BRIDGE

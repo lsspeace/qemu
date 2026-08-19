@@ -22,8 +22,11 @@
 #include "hw/riscv/boot.h"
 #include "hw/riscv/fdt-common.h"
 #include "hw/misc/sifive_test.h"
+#include "hw/misc/vlt_bridge.h"
 #include "hw/intc/riscv_aclint.h"
 #include "hw/intc/riscv_aplic.h"
+#include "hw/core/qdev-properties.h"
+#include "chardev/char.h"
 
 /* riscv */
 #include "target/riscv/cpu.h"
@@ -36,6 +39,7 @@ static const MemMapEntry vlt_host_map[] = {
     [VLT_HOST_DEV_MROM]     = {     0x1000,        0xf000 },
     [VLT_HOST_DEV_CLINT]    = {  0x2000000,       0x10000 },
     [VLT_HOST_DEV_APLIC]    = {  0xc000000,     0x4000000 },
+    [VLT_HOST_DEV_VL_BRG]   = { 0x40000000,      0x100000 },
     [VLT_HOST_DEV_DRAM]     = { 0x80000000,           0x0 },
 };
 
@@ -46,6 +50,20 @@ static void create_fdt(VltHostState* s)
     ms->fdt = create_board_device_tree("vlt_host", "vl_host_dev", &fdt_size);
 
     /* do nothing */
+}
+
+/* Create the Verilator bridge device at @addr.
+ * MMIO accesses are forwarded to TCP 127.0.0.1:9000 (external model). */
+static void create_vlt_bridge(hwaddr addr, hwaddr size)
+{
+    DeviceState *brg = qdev_new(TYPE_VLT_BRIDGE);
+    Chardev *chr = qemu_chr_new_noreplay("vlt_bridge", "tcp:127.0.0.1:9000",
+                                         false, NULL);
+
+    qdev_prop_set_chr(brg, "chardev", chr);
+    qdev_prop_set_uint64(brg, "size", size);
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(brg), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(brg), 0, addr);
 }
 
 static void vlt_host_board_init(MachineState *machine)
@@ -85,13 +103,15 @@ static void vlt_host_board_init(MachineState *machine)
                                RISCV_ACLINT_DEFAULT_MTIME,
                                RISCV_ACLINT_DEFAULT_TIMEBASE_FREQ, true);
 
-    /* Create APLIC
-     * Direct (non-MSI), 3 bit priority.
-     */
+    /* Create APLIC: Direct (non-MSI), 3 bit priority */
     riscv_aplic_create(memmap[VLT_HOST_DEV_APLIC].base,
                        memmap[VLT_HOST_DEV_APLIC].size,
                        0, machine->smp.cpus, VLT_APLIC_NUM_SOURCES, 3, 
                        false, true, NULL);
+
+    /* Create Verilator bridge: MMIO @0x40000000 -> TCP 9000 */
+    create_vlt_bridge(memmap[VLT_HOST_DEV_VL_BRG].base,
+                   memmap[VLT_HOST_DEV_VL_BRG].size);
 
     /* Register system main memory */
     memory_region_add_subregion(sys_mem, memmap[VLT_HOST_DEV_DRAM].base, 
